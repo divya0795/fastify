@@ -930,3 +930,45 @@ test('fallback error handler aborts the response when writeHead throws ERR_HTTP_
   // The server must not have crashed.
   t.assert.strictEqual(app.server.listening, true)
 })
+
+test('a non-error object thrown by the handler is handled when an async preSerialization hook fails on it', async (t) => {
+  t.plan(3)
+
+  const fastify = Fastify()
+  t.after(() => fastify.close())
+
+  // The hook expects the success payload shape, so it throws on the error object.
+  fastify.addHook('preSerialization', async (request, reply, payload) => {
+    return { count: payload.items.length }
+  })
+
+  fastify.get('/', async () => {
+    /* eslint-disable-next-line no-throw-literal */
+    throw { statusCode: 404, message: 'not found' }
+  })
+
+  const reply = await fastify.inject({ method: 'GET', url: '/' })
+  t.assert.strictEqual(reply.statusCode, 404)
+  t.assert.strictEqual(reply.headers['content-type'], 'application/json; charset=utf-8')
+  t.assert.match(JSON.parse(reply.body).message, /reading 'length'/)
+})
+
+test('a non-error object thrown by the handler is handled when an onSend hook fails on it', async (t) => {
+  t.plan(2)
+
+  const fastify = Fastify()
+  t.after(() => fastify.close())
+
+  fastify.addHook('onSend', (request, reply, payload, done) => {
+    done(reply.statusCode >= 400 ? new Error('onSend rejected the payload') : null, payload)
+  })
+
+  fastify.get('/', async () => {
+    /* eslint-disable-next-line no-throw-literal */
+    throw { statusCode: 400, message: 'bad input' }
+  })
+
+  const reply = await fastify.inject({ method: 'GET', url: '/' })
+  t.assert.strictEqual(reply.statusCode, 400)
+  t.assert.strictEqual(JSON.parse(reply.body).message, 'onSend rejected the payload')
+})
