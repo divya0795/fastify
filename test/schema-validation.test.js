@@ -2346,3 +2346,50 @@ test('header schema propertyNames lowercasing does not mutate the input schema',
   t.assert.strictEqual(JSON.stringify(schema), schemaBefore)
   t.assert.strictEqual(JSON.stringify(headers), headersBefore)
 })
+
+test('a custom validator returning false without setting errors rejects the request', async t => {
+  t.plan(3)
+  const fastify = Fastify()
+  t.after(() => fastify.close())
+
+  fastify.setValidatorCompiler(() => (data) => typeof data?.name === 'string')
+  fastify.post('/', { schema: { body: { type: 'object' } } }, async () => 'handler reached')
+
+  const res = await fastify.inject({ method: 'POST', url: '/', payload: { name: 123 } })
+  t.assert.strictEqual(res.statusCode, 400)
+  t.assert.strictEqual(res.json().code, 'FST_ERR_VALIDATION')
+  t.assert.strictEqual(res.json().message, 'body is invalid')
+})
+
+test('an async custom validator resolving false without setting errors rejects the request', async t => {
+  t.plan(2)
+  const fastify = Fastify()
+  t.after(() => fastify.close())
+
+  fastify.setValidatorCompiler(() => async () => false)
+  fastify.post('/', { schema: { body: { type: 'object' } } }, async () => 'handler reached')
+
+  const res = await fastify.inject({ method: 'POST', url: '/', payload: { name: 123 } })
+  t.assert.strictEqual(res.statusCode, 400)
+  t.assert.strictEqual(res.json().code, 'FST_ERR_VALIDATION')
+})
+
+test('a wrapped ajv validator returning false rejects the request', async t => {
+  t.plan(2)
+  const fastify = Fastify()
+  t.after(() => fastify.close())
+
+  const ajv = new AJV()
+  // The wrapper (e.g. for metrics) has no `errors` property of its own
+  fastify.setValidatorCompiler(({ schema }) => {
+    const validate = ajv.compile(schema)
+    return (data) => validate(data)
+  })
+  fastify.post('/', {
+    schema: { body: { type: 'object', properties: { amount: { type: 'integer', minimum: 1 } } } }
+  }, async () => 'handler reached')
+
+  const res = await fastify.inject({ method: 'POST', url: '/', payload: { amount: -500 } })
+  t.assert.strictEqual(res.statusCode, 400)
+  t.assert.strictEqual(res.json().code, 'FST_ERR_VALIDATION')
+})

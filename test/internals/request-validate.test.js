@@ -1308,7 +1308,9 @@ test('Nested Context', async subtest => {
       await ntst.test(
         'Should return true/false if input valid - With Schema for Route defined and scoped validator compiler',
         async t => {
-          const validator = new Ajv()
+          // coerceTypes: the path param arrives as a string, and the route's own
+          // params validation must pass for the handler to run
+          const validator = new Ajv({ coerceTypes: true })
           const fastify = Fastify()
           const childCounter = {
             query: 0,
@@ -1360,7 +1362,7 @@ test('Nested Context', async subtest => {
                     break
                   case 4:
                     t.assert.ok(req.validateInput({ id: 1 }, 'params'))
-                    t.assert.ok(!req.validateInput({ id: params.id }, 'params'))
+                    t.assert.ok(!req.validateInput({ id: 0 }, 'params'))
                     break
                   default:
                     t.assert.fail('Invalid id')
